@@ -63,12 +63,12 @@ contract Canvas {
         on.k = 0;
         on.n = 1;
         on.hash = 1;
-        hashToNode[2] = on;
+        hashToNode[1] = on;
 
         off.k = 0;
         off.n = 0;
-        off.hash = 2;
-        hashToNode[1] = off;
+        off.hash = 0;
+        hashToNode[0] = off;
 
         create(numCells);
         // head = get_zero(kHead);
@@ -110,12 +110,13 @@ contract Canvas {
     }
 
     function create(uint n) internal returns(Node memory) {
+        require(n > 3, "n must be greater than 3");
         Node[4] memory nodes = [off, off, off, off];
         head = join(nodes[0], nodes[1], nodes[2], nodes[3]);
-        n = n >> 2;
+        n = n / 4;
         while (n > 1) {
             head = join(head, head, head, head);
-            n = n >> 2;
+            n = n / 4;
         }
         return head;
     }
@@ -177,13 +178,11 @@ contract Canvas {
     }
 
     function activateNodes(uint[][] memory segments) public {
-        updateHead();
-        Node memory headNew = head;
+        // updateHead();
         for (uint i=0; i < segments.length; i++) {
             require(segments[i].length == head.k, "Not enough segments");
-            headNew = activateNode(headNew, segments[i], 0);
+            head = activateNode(head, segments[i], 0);
         }
-        head = headNew;
         lastUpdatedBlock = block.number;
     }
 

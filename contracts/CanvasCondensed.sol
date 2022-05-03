@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import "@openzeppelin/contracts/utils/Strings.sol";
+
 struct Node {
     uint k;
-    uint n;
-    uint hash;
-    uint a;
-    uint b;
-    uint c;
-    uint d; 
+    bool alive;
+    bytes32 hash;
+    bytes32 a;
+    bytes32 b;
+    bytes32 c;
+    bytes32 d; 
 }
 
 struct Point {
@@ -24,188 +26,153 @@ struct ns4 {
 }
 
 struct ns9 {
-    uint a_n;
-    uint b_n;
-    uint c_n;
-    uint d_n;
-    uint E_n;
-    uint f_n;
-    uint g_n; 
-    uint h_n; 
-    uint i_n;
+    bool a_n;
+    bool b_n;
+    bool c_n;
+    bool d_n;
+    bool E_n;
+    bool f_n;
+    bool g_n; 
+    bool h_n; 
+    bool i_n;
 }
 
 contract CanvasCondensed {
-    Node   public on;
-    Node   public off;
-    Node   public head;
-    uint mask = 9223372036854775807;
-    uint   public kHead = 2;
-    uint   public numCells = 4**kHead;
-    uint   public lastUpdatedBlock;
-    uint   public blocksToWait; 
+    Node public on = join(0, true, on.a, on.b, on.c, on.d);
+    Node public off = join(0, false, off.a, off.b, off.c, off.d);
+    Node public head;
+    uint public kHead = 5;
+    uint public numCells = 4**kHead;
+    uint public lastUpdatedTimestamp;
+    uint public minutesToWait; 
+    event hashUsed(uint k, Node hashNode);
 
-    mapping(uint => Node)   public hashToNode;
+    mapping(bytes32 => Node) public hashToNode;
 
     event lifeCount(uint n);
 
     constructor() {
-        on.k = 0;
-        on.n = 1;
-        on.hash = 1;
-        hashToNode[2] = on;
-
-        off.k = 0;
-        off.n = 0;
-        off.hash = 2;
-        hashToNode[1] = off;
-
-        // create(numCells);
-        // head = get_zero(kHead);
-        // head = centre(head);
-        lastUpdatedBlock = block.number;
-        // blocksToWait = 1 << (head.k - 2);
+        create(numCells);
+        lastUpdatedTimestamp = block.timestamp;
+        minutesToWait = 1;
     }
 
-    function getHash(uint k, uint hashA, uint hashB, uint hashC, uint hashD) public view returns(uint) {
-        uint nhash = (
-            k
-            + 2
-            + 5131830419411 * hashA
-            + 3758991985019 * hashB
-            + 8973110871315 * hashC
-            + 4318490180473 * hashD
-        ) & mask;
-        return nhash;
-        // bytes memory r3 = abi.encodePacked(k, n, hashA, hashB, hashC, hashD);
+    function getHash(uint k, bool alive, bytes32 hashA, bytes32 hashB, bytes32 hashC, bytes32 hashD) public view returns(bytes32) {
+        return keccak256(abi.encodePacked(k, alive, hashA, hashB, hashC, hashD));
     }
 
-    function join(Node memory a, Node memory b, Node memory c, Node memory d)  public returns(Node memory) {
+    function join(uint k, bool alive, bytes32 hashA, bytes32 hashB, bytes32 hashC, bytes32 hashD) public returns(Node memory) {
         /*
         Combine four children at level `k-1` to a new node at level `k`.
         If this is cached, return the cached node. 
         Otherwise, create a new node, and add it to the cache.
         */
-        uint nhash = getHash(a.k, a.hash, b.hash, c.hash, d.hash);
+        bytes32 nhash = getHash(k, alive, hashA, hashB, hashC, hashD);
+        bytes32 emptyHash;
         Node memory hashNode = hashToNode[nhash];
-        if(hashNode.hash != 0) {
+        if(hashNode.hash != emptyHash) {
+            emit hashUsed(k, hashNode);
             return hashNode;
         }
         
-        uint  n = a.n + b.n + c.n + d.n;
-        Node memory result;
-        result.k = a.k+1;
-        result.n = n;
-        result.hash = nhash;
-        result.a = a.hash;
-        result.b = b.hash;
-        result.c = c.hash;
-        result.d = d.hash;
+        Node memory result = Node(k, alive, nhash, hashA, hashB, hashC, hashD);
         hashToNode[nhash] = result;
         return result;
     }
 
-    function create(uint n) public returns(Node memory) {
-        Node[4] memory nodes = [off, off, off, off];
-        head = join(nodes[0], nodes[1], nodes[2], nodes[3]);
+    function create(uint n) public {
+        uint k = 1;
+        Node memory newHead = join(k, false, off.hash, off.hash, off.hash, off.hash);
         n = n >> 2;
         while (n > 1) {
-            head = join(head, head, head, head);
+            k++;
             n = n >> 2;
+            newHead = join(k, false, newHead.hash, newHead.hash, newHead.hash, newHead.hash);
         }
-        return head;
+        head = newHead;
+        kHead = k;
+        numCells = 4**k;
     }
 
-    function activateNode(Node memory node, uint[] memory segments, uint j)    public returns(Node memory) {
+    function activateNode(Node memory node, uint[] memory segments, uint j) public returns(Node memory) {
         uint segment = segments[j]; 
-        Node memory nodeA = hashToNode[node.a];
-        Node memory nodeB = hashToNode[node.b];
-        Node memory nodeC = hashToNode[node.c];
-        Node memory nodeD = hashToNode[node.d];
         if (segment == 0) {
             if (segments.length - 1 == j) {
-                return join(on, nodeB, nodeC, nodeD);
+                return join(node.k, true, on.hash, node.b, node.c, node.d);
             } else {
                 j++;
-                return join(activateNode(nodeA, segments, j), nodeB, nodeC, nodeD);
+                Node memory nodeA = activateNode(hashToNode[node.a], segments, j);
+                return join(node.k, true, nodeA.hash, node.b, node.c, node.d);
             }
         } else if (segment == 1) {
             if (segments.length - 1 == j) {
-                return join(nodeA, on, nodeC, nodeD);
+                return join(node.k, true, node.a, on.hash, node.c, node.d);
             } else {
                 j++;
-                return join(nodeA, activateNode(nodeB, segments, j), nodeC, nodeD);
+                Node memory nodeB = activateNode(hashToNode[node.b], segments, j);
+                return join(node.k, true, node.a, nodeB.hash, node.c, node.d);
             }
         } else if (segment == 2) {
             if (segments.length - 1 == j) {
-                return join(nodeA, nodeB, on, nodeD);
+                return join(node.k, true, node.a, node.b, on.hash, node.d);
             } else {
                 j++;
-                return join(nodeA, nodeB, activateNode(nodeC, segments, j), nodeD);
+                Node memory nodeC = activateNode(hashToNode[node.c], segments, j);
+                return join(node.k, true, node.a, node.b, nodeC.hash, node.d);
             }
         } else {
             if (segments.length - 1 == j) {
-                return join(nodeA, nodeB, nodeC, on);
+                return join(node.k, true, node.a, node.b, node.c, on.hash);
             } else {
                 j++;
-                return join(nodeA, nodeB, nodeC, activateNode(nodeD, segments, j));
+                Node memory nodeD = activateNode(hashToNode[node.d], segments, j);
+                return join(node.k, true, node.a, node.b, node.c, nodeD.hash);
             }
         } 
     }
 
     function activateNodes(uint[][] memory segments) public {
-        updateHead();
-        Node memory headNew = head;
-        for (uint i=0; i < segments.length; i++) {
-            require(segments[i].length == head.k, "Not enough segments");
-            headNew = activateNode(headNew, segments[i], 0);
-        }
-        head = headNew;
-        lastUpdatedBlock = block.number;
-    }
-
-    function get_zero(uint k)    public returns(Node memory) {
-        /*
-        """Return an empty node at level `k`."""
-        */
-        if(k > 0) {
-            return join(get_zero(k - 1), get_zero(k - 1), get_zero(k - 1), get_zero(k - 1));
-        }
-        else{
-            return off;
+        // updateHead();
+        if (segments.length > 0) {
+            Node memory newHead = head;
+            for (uint i=0; i < segments.length; i++) {
+                require(segments[i].length == head.k, "Not enough segments");
+                newHead = activateNode(newHead, segments[i], 0);
+            }
+            head = newHead;
+            // lastUpdatedTimestamp = block.timestamp;
         }
     }
 
-    function centre(Node memory m)   public returns(Node memory){
+    function centre(Node memory m) public returns(Node memory){
         /*
         """Return a node at level `k+1`, which is centered on the given quadtree node."""
         */
-        Node memory z = get_zero(hashToNode[m.a].k); // # get the right-sized zero node
-        // Node memory z = off;
-        // z.k = hashToNode[m.a].k;
-        return join(
-            join(z, z, z, hashToNode[m.a]), 
-            join(z, z, hashToNode[m.b], z), 
-            join(z, hashToNode[m.c], z, z), 
-            join(hashToNode[m.d], z, z, z)
-        );
+        Node memory newNode = join(m.k, m.alive, m.d, m.c, m.b, m.a);
+        uint newK = m.k+1;
+        return join(newK, newNode.alive, newNode.hash, newNode.hash, newNode.hash, newNode.hash);
+
     }
 
-    function life(ns9 memory temp)    public returns(Node memory) {
+    function centre_head() public {
+        head = centre(head);
+    }
+
+    function life(ns9 memory temp) public returns(Node memory) {
         /*
         """The standard life rule, taking eight neighbours and a centre cell E.
         Returns on if should be on, and off otherwise."""
         */
-        uint outer = temp.a_n + temp.b_n + temp.c_n + temp.d_n + temp.f_n + temp.g_n + temp.h_n + temp.i_n;
-        emit lifeCount(outer);
-        if ((temp.E_n != 0 && outer == 2) || outer == 3) {
+        uint outer;
+        if(temp.a_n){outer++;}if(temp.b_n){outer++;}if(temp.c_n){outer++;}if(temp.d_n){outer++;}if(temp.f_n){outer++;}if(temp.g_n){outer++;}if(temp.h_n){outer++;}if(temp.i_n){outer++;}
+        if ((temp.E_n && outer == 2) || outer == 3) {
             return on;
         } else {
             return off;
         }
     }
 
-    function life_4x4(Node memory m)    public returns(Node memory){
+    function life_4x4(Node memory m) public returns(Node memory){
         /*
         """
         Return the next generation of a $k=2$ (i.e. 4x4) cell. 
@@ -215,16 +182,19 @@ contract CanvasCondensed {
         the 3x3 sub-neighbourhoods of 1x1 cells using the standard Life rule.
         """
         */
-        ns4 memory temp = ns4(
-            // life(ns9( 0,  0,  0,  0,  hashToNode[ hashToNode[m.a].a].n,  hashToNode[ hashToNode[m.a].b].n,  0,  hashToNode[ hashToNode[m.a].c].n,  hashToNode[ hashToNode[m.a].d].n)),  //# AA
-            // life(ns9( hashToNode[ hashToNode[m.a].a].n,  hashToNode[ hashToNode[m.a].b].n,  hashToNode[ hashToNode[m.b].a].n,  hashToNode[ hashToNode[m.a].c].n,  hashToNode[ hashToNode[m.a].d].n,  hashToNode[ hashToNode[m.b].c].n,  hashToNode[ hashToNode[m.c].a].n,  hashToNode[ hashToNode[m.c].b].n,  hashToNode[ hashToNode[m.d].a].n)),  //# AB
-            // life(ns9( hashToNode[ hashToNode[m.a].a].n,  hashToNode[ hashToNode[m.a].b].n,  hashToNode[ hashToNode[m.b].a].n,  hashToNode[ hashToNode[m.a].c].n,  hashToNode[ hashToNode[m.a].d].n,  hashToNode[ hashToNode[m.b].c].n,  hashToNode[ hashToNode[m.c].a].n,  hashToNode[ hashToNode[m.c].b].n,  hashToNode[ hashToNode[m.d].a].n)),  //# AC
-            life(ns9( hashToNode[ hashToNode[m.a].a].n,  hashToNode[ hashToNode[m.a].b].n,  hashToNode[ hashToNode[m.b].a].n,  hashToNode[ hashToNode[m.a].c].n,  hashToNode[ hashToNode[m.a].d].n,  hashToNode[ hashToNode[m.b].c].n,  hashToNode[ hashToNode[m.c].a].n,  hashToNode[ hashToNode[m.c].b].n,  hashToNode[ hashToNode[m.d].a].n)),  //# AD
-            life(ns9( hashToNode[ hashToNode[m.a].b].n,  hashToNode[ hashToNode[m.b].a].n,  hashToNode[ hashToNode[m.b].b].n,  hashToNode[ hashToNode[m.a].d].n,  hashToNode[ hashToNode[m.b].c].n,  hashToNode[ hashToNode[m.b].d].n,  hashToNode[ hashToNode[m.c].b].n,  hashToNode[ hashToNode[m.d].a].n,  hashToNode[ hashToNode[m.d].b].n)),  //# BC
-            life(ns9( hashToNode[ hashToNode[m.a].c].n,  hashToNode[ hashToNode[m.a].d].n,  hashToNode[ hashToNode[m.b].c].n,  hashToNode[ hashToNode[m.c].a].n,  hashToNode[ hashToNode[m.c].b].n,  hashToNode[ hashToNode[m.d].a].n,  hashToNode[ hashToNode[m.c].c].n,  hashToNode[ hashToNode[m.c].d].n,  hashToNode[ hashToNode[m.d].c].n)),  //# CB
-            life(ns9( hashToNode[ hashToNode[m.a].d].n,  hashToNode[ hashToNode[m.b].c].n,  hashToNode[ hashToNode[m.b].d].n,  hashToNode[ hashToNode[m.c].b].n,  hashToNode[ hashToNode[m.d].a].n,  hashToNode[ hashToNode[m.d].b].n,  hashToNode[ hashToNode[m.c].d].n,  hashToNode[ hashToNode[m.d].c].n,  hashToNode[ hashToNode[m.d].d].n))  //# DA
+        ns4 memory nodes = ns4(hashToNode[m.a], hashToNode[m.b], hashToNode[m.c], hashToNode[m.d]);
+        ns4 memory nodesA = ns4(hashToNode[nodes.n1.a], hashToNode[nodes.n1.b], hashToNode[nodes.n1.c], hashToNode[nodes.n1.d]);
+        ns4 memory nodesB = ns4(hashToNode[nodes.n2.a], hashToNode[nodes.n2.b], hashToNode[nodes.n2.c], hashToNode[nodes.n2.d]);
+        ns4 memory nodesC = ns4(hashToNode[nodes.n3.a], hashToNode[nodes.n3.b], hashToNode[nodes.n3.c], hashToNode[nodes.n3.d]);
+        ns4 memory nodesD = ns4(hashToNode[nodes.n4.a], hashToNode[nodes.n4.b], hashToNode[nodes.n4.c], hashToNode[nodes.n4.d]);
+        ns4 memory newNode = ns4(
+            life(ns9(nodesA.n1.alive, nodesA.n2.alive, nodesB.n1.alive, nodesA.n3.alive, nodesA.n4.alive,nodesB.n3.alive, nodesC.n1.alive, nodesC.n2.alive, nodesD.n1.alive)),  //# AD
+            life(ns9(nodesA.n2.alive, nodesB.n1.alive, nodesB.n2.alive, nodesA.n4.alive, nodesB.n3.alive, nodesB.n4.alive, nodesC.n2.alive, nodesD.n1.alive, nodesD.n2.alive)),  //# BC
+            life(ns9(nodesA.n3.alive, nodesA.n4.alive, nodesB.n3.alive, nodesC.n1.alive, nodesC.n2.alive, nodesD.n1.alive, nodesC.n3.alive, nodesC.n4.alive, nodesD.n3.alive)),  //# CB
+            life(ns9(nodesA.n4.alive, nodesB.n3.alive, nodesB.n4.alive, nodesC.n2.alive, nodesD.n1.alive, nodesD.n2.alive, nodesC.n4.alive, nodesD.n3.alive, nodesD.n4.alive))  //# DA
         );
-        return join(temp.n1, temp.n2, temp.n3, temp.n4);
+        bool alive = newNode.n1.alive || newNode.n2.alive || newNode.n3.alive || newNode.n4.alive;
+        return join(newNode.n1.k+1, alive, newNode.n1.hash, newNode.n2.hash, newNode.n3.hash, newNode.n4.hash);
     }
 
     function successor(Node memory m, uint j)   public returns(Node memory) {
@@ -235,7 +205,7 @@ contract CanvasCondensed {
         """
         */
         Node memory s;
-        if (m.n == 0){  //# empty
+        if (!m.alive){  //# empty
             return  hashToNode[m.a];
         } else if (m.k == 2) {  //# base case
             s = life_4x4(m);
@@ -248,36 +218,55 @@ contract CanvasCondensed {
                     j = jNew;
                 }
             }
-            Node[4] memory ms = [ hashToNode[m.a],  hashToNode[m.b],  hashToNode[m.c],  hashToNode[m.d]];
+            ns4 memory ms = ns4(hashToNode[m.a], hashToNode[m.b], hashToNode[m.c], hashToNode[m.d]);
+            ns4[4] memory msSub = [
+                ns4(hashToNode[ms.n1.a], hashToNode[ms.n1.b], hashToNode[ms.n1.c], hashToNode[ms.n1.d]),
+                ns4(hashToNode[ms.n2.a], hashToNode[ms.n2.b], hashToNode[ms.n2.c], hashToNode[ms.n2.d]),
+                ns4(hashToNode[ms.n3.a], hashToNode[ms.n3.b], hashToNode[ms.n3.c], hashToNode[ms.n3.d]),
+                ns4(hashToNode[ms.n4.a], hashToNode[ms.n4.b], hashToNode[ms.n4.c], hashToNode[ms.n4.d])
+            ];
+        
             Node[9] memory cs = [
-                successor(join(hashToNode[ms[0].a], hashToNode[ ms[0].b], hashToNode[ ms[0].c], hashToNode[ms[0].d]), j),
-                successor(join(hashToNode[ms[0].b], hashToNode[ ms[1].a], hashToNode[ ms[0].d], hashToNode[ms[1].c]), j),
-                successor(join(hashToNode[ms[1].a], hashToNode[ ms[1].b], hashToNode[ ms[1].c], hashToNode[ms[1].d]), j),
-                successor(join(hashToNode[ms[0].c], hashToNode[ ms[0].d], hashToNode[ ms[2].a], hashToNode[ms[2].b]), j),
-                successor(join(hashToNode[ms[0].d], hashToNode[ ms[1].c], hashToNode[ ms[2].b], hashToNode[ms[3].a]), j),
-                successor(join(hashToNode[ms[1].c], hashToNode[ ms[1].d], hashToNode[ ms[3].a], hashToNode[ms[3].b]), j),
-                successor(join(hashToNode[ms[2].a], hashToNode[ ms[2].b], hashToNode[ ms[2].c], hashToNode[ms[2].d]), j),
-                successor(join(hashToNode[ms[2].b], hashToNode[ ms[3].a], hashToNode[ ms[2].d], hashToNode[ms[3].c]), j),
-                successor(join(hashToNode[ms[3].a], hashToNode[ ms[3].b], hashToNode[ ms[3].c], hashToNode[ms[3].d]), j)
+                successor(ms.n1, j),
+                successor(join(ms.n1.k, msSub[0].n2.alive || msSub[1].n1.alive || msSub[0].n4.alive || msSub[1].n3.alive, ms.n1.b, ms.n2.a, ms.n1.d, ms.n2.c), j),
+                successor(join(ms.n1.k, msSub[1].n1.alive || msSub[1].n2.alive || msSub[1].n3.alive || msSub[1].n4.alive, ms.n2.a, ms.n2.b, ms.n2.c, ms.n2.d), j),
+                successor(join(ms.n1.k, msSub[0].n3.alive || msSub[0].n4.alive || msSub[2].n1.alive || msSub[2].n2.alive, ms.n1.c, ms.n1.d, ms.n3.a, ms.n3.b), j),
+                successor(join(ms.n1.k, msSub[0].n4.alive || msSub[1].n3.alive || msSub[2].n2.alive || msSub[3].n1.alive, ms.n1.d, ms.n2.c, ms.n3.b, ms.n4.a), j),
+                successor(join(ms.n1.k, msSub[1].n3.alive || msSub[1].n4.alive || msSub[3].n1.alive || msSub[3].n2.alive, ms.n2.c, ms.n2.d, ms.n4.a, ms.n4.b), j),
+                successor(join(ms.n1.k, msSub[2].n1.alive || msSub[2].n2.alive || msSub[2].n3.alive || msSub[2].n4.alive, ms.n3.a, ms.n3.b, ms.n3.c, ms.n3.d), j),
+                successor(join(ms.n1.k, msSub[2].n2.alive || msSub[3].n1.alive || msSub[2].n4.alive || msSub[3].n3.alive, ms.n3.b, ms.n4.a, ms.n3.d, ms.n4.c), j),
+                successor(ms.n4, j)
             ];
 
-            if (j < m.k - 2){
-                s = join(
-                    (join(hashToNode[cs[0].d], hashToNode[cs[1].c], hashToNode[cs[3].b], hashToNode[cs[4].a])),
-                    (join(hashToNode[cs[1].d], hashToNode[cs[2].c], hashToNode[cs[4].b], hashToNode[cs[5].a])),
-                    (join(hashToNode[cs[3].d], hashToNode[cs[4].c], hashToNode[cs[6].b], hashToNode[cs[7].a])),
-                    (join(hashToNode[cs[4].d], hashToNode[cs[5].c], hashToNode[cs[7].b], hashToNode[cs[8].a]))
+            if (j < m.k - 1){
+                msSub = [
+                    ns4(hashToNode[cs[0].d], hashToNode[cs[1].c], hashToNode[cs[3].b], hashToNode[cs[4].a]),
+                    ns4(hashToNode[cs[1].d], hashToNode[cs[2].c], hashToNode[cs[4].b], hashToNode[cs[5].a]),
+                    ns4(hashToNode[cs[3].d], hashToNode[cs[4].c], hashToNode[cs[6].b], hashToNode[cs[7].a]),
+                    ns4(hashToNode[cs[4].d], hashToNode[cs[5].c], hashToNode[cs[7].b], hashToNode[cs[8].a])
+                ];
+                ms = ns4(
+                    join(cs[1].k, msSub[0].n1.alive || msSub[0].n2.alive || msSub[0].n3.alive || msSub[0].n4.alive, cs[0].d, cs[1].c, cs[3].b, cs[4].a),
+                    join(cs[1].k, msSub[0].n1.alive || msSub[0].n2.alive || msSub[0].n3.alive || msSub[0].n4.alive, cs[1].d, cs[2].c, cs[4].b, cs[5].a),
+                    join(cs[1].k, msSub[0].n1.alive || msSub[0].n2.alive || msSub[0].n3.alive || msSub[0].n4.alive, cs[3].d, cs[4].c, cs[6].b, cs[7].a),
+                    join(cs[1].k, msSub[0].n1.alive || msSub[0].n2.alive || msSub[0].n3.alive || msSub[0].n4.alive, cs[4].d, cs[5].c, cs[7].b, cs[8].a)
                 );
-            } else{
-                s = join(
-                    successor(join(cs[0], cs[1], cs[3], cs[4]), j),
-                    successor(join(cs[1], cs[2], cs[4], cs[5]), j),
-                    successor(join(cs[3], cs[4], cs[6], cs[7]), j),
-                    successor(join(cs[4], cs[5], cs[7], cs[8]), j)
+                s = join(ms.n1.k+1, ms.n1.alive || ms.n2.alive || ms.n3.alive || ms.n4.alive, ms.n1.hash, ms.n2.hash, ms.n3.hash, ms.n4.hash);
+            } else {
+                ms = ns4(
+                    successor(join(cs[0].k+1, cs[0].alive || cs[1].alive || cs[3].alive || cs[4].alive, cs[0].hash, cs[1].hash, cs[3].hash, cs[4].hash), j),
+                    successor(join(cs[0].k+1, cs[1].alive || cs[2].alive || cs[4].alive || cs[5].alive, cs[1].hash, cs[2].hash, cs[4].hash, cs[5].hash), j),
+                    successor(join(cs[0].k+1, cs[3].alive || cs[4].alive || cs[6].alive || cs[7].alive, cs[3].hash, cs[4].hash, cs[6].hash, cs[7].hash), j),
+                    successor(join(cs[0].k+1, cs[4].alive || cs[5].alive || cs[7].alive || cs[8].alive, cs[4].hash, cs[5].hash, cs[7].hash, cs[8].hash), j)
                 );
+                s = join(ms.n1.k+1, ms.n1.alive || ms.n2.alive || ms.n3.alive || ms.n4.alive, ms.n1.hash, ms.n2.hash, ms.n3.hash, ms.n4.hash);
             }
         }
         return s;
+    }
+
+    function successor_head(uint j) public {
+        head = successor(head, j);
     }
 
     function ffwd(Node memory node, uint n)   public returns(Node memory) {
@@ -291,15 +280,44 @@ contract CanvasCondensed {
         return node;
     }
     
-    function inner(Node memory node)    public returns(Node memory) {
-        /*
-        """
-        Return the central portion of a node -- the inverse operation
-        of centre()
-        """
-        */
-        return join( hashToNode[ hashToNode[node.a].d],  hashToNode[ hashToNode[node.b].c],  hashToNode[ hashToNode[node.c].b],  hashToNode[ hashToNode[node.d].a]);
-    }
+    // function inner(Node memory node)    public returns(Node memory) {
+    //     /*
+    //     """
+    //     Return the central portion of a node -- the inverse operation
+    //     of centre()
+    //     """
+    //     */
+    //     return join( hashToNode[ hashToNode[node.a].d],  hashToNode[ hashToNode[node.b].c],  hashToNode[ hashToNode[node.c].b],  hashToNode[ hashToNode[node.d].a]);
+    // }
+
+    // function is_padded(Node memory node)   internal view returns(bool) {
+    //     /*
+    //     """
+    //     True if the pattern is surrounded by at least one sub-sub-block of
+    //     empty space.
+    //     """
+    //     */
+    //     return (
+    //         hashToNode[node.a].n ==  hashToNode[ hashToNode[ hashToNode[node.a].d].d].n
+    //         &&  hashToNode[node.b].n ==  hashToNode[ hashToNode[ hashToNode[node.b].c].c].n
+    //         &&  hashToNode[node.c].n ==  hashToNode[ hashToNode[ hashToNode[node.c].b].b].n
+    //         &&  hashToNode[node.d].n ==  hashToNode[ hashToNode[ hashToNode[node.d].a].a].n
+    //     );
+    // }
+
+
+    // function crop(Node memory node)   internal returns(Node memory) {
+    //     /*
+    //     """
+    //     Repeatedly take the inner node, until all padding is removed.
+    //     """
+    //     */
+    //     if (node.k <= 3 || !is_padded(node)) {
+    //         return node;
+    //     } else{
+    //         return crop(inner(node));
+    //     }
+    // }
 
 
     function advance(Node memory node, uint n)  public returns(Node memory) {
@@ -314,44 +332,62 @@ contract CanvasCondensed {
         uint nCopy = n;
         uint i = 0;
         //# get the binary expansion, and pad sufficiently
-        while (n > 0){
+        while (nCopy > 0){
             nCopy = nCopy >> 1;
-            // node = centre(node);
+            node = centre(node);
             i++;
         }
         //# apply the successor rule
-        for (uint k=i - 1; k - 1 > 0; k--) {
-            n = n >> 1;
+        for (uint k=i; k > 0; k--) {
             uint bit = (n & 1);
+            n = n >> 1;
             if (bit != 0) {
-                uint j = i - k - 1;
-                node = successor(centre(node), j);
+                uint j = i - k;
+                node = successor(node, j);
             }
         }
-        return inner(node);
-        // return node;
+        return node;
+        // return crop(node);
+    }
+
+    function getTimeDiff() public view returns (uint) {
+        return (block.timestamp - lastUpdatedTimestamp) / (minutesToWait * 60);
     }
     
     function updateHead() public {
-        uint n = (block.number - lastUpdatedBlock) / blocksToWait;
+        uint n = getTimeDiff();
         if (n != 0) {
             head = advance(head, n);
         }
     }
 
-    function print(Node memory node)  public view returns(string memory) {
+    function print(Node memory node, uint x, uint y, bytes memory rep) public view returns(string memory) {
         if (node.k == 0) {
-            if (node.n == 0) {
-                return '.';
+
+            if (!node.alive) {
+                return string(abi.encodePacked(rep,'--', Strings.toString(x), ',', Strings.toString(y), ':O;'));
             } else {
-                return 'X';
+                return string(abi.encodePacked(rep,'--', Strings.toString(x), ',', Strings.toString(y), ':X;'));
             }
+        } else if (node.k == 1) {
+            return string(abi.encodePacked(
+            print(hashToNode[node.a], (x - 1)/2, (y - 1)/2, abi.encodePacked(string(rep), "0")), 
+            print(hashToNode[node.b], (x + 1)/2, (y - 1)/2, abi.encodePacked(string(rep), "1")), 
+            print(hashToNode[node.c], (x - 1)/2, (y + 1)/2, abi.encodePacked(string(rep), "2")), 
+            print(hashToNode[node.d], (x + 1)/2, (y + 1)/2, abi.encodePacked(string(rep), "3")))
+            );
         }
-        return string(abi.encodePacked(print(hashToNode[node.a]), print(hashToNode[node.b]), print(hashToNode[node.c]), print(hashToNode[node.d])));
+        uint offset = 2**(node.k - 1);
+        return string(abi.encodePacked(
+            print(hashToNode[node.a], x - offset, y - offset, abi.encodePacked(string(rep), "0")), 
+            print(hashToNode[node.b], x + offset, y - offset, abi.encodePacked(string(rep), "1")), 
+            print(hashToNode[node.c], x - offset, y + offset, abi.encodePacked(string(rep), "2")), 
+            print(hashToNode[node.d], x + offset, y + offset, abi.encodePacked(string(rep), "3")))
+        );
     }
 
     function print_head() public view returns(string memory) {
-        return print(head);
+        return print(head, (numCells >> kHead) - 1, (numCells >> kHead) - 1, abi.encodePacked(""));
     }
 
 
@@ -360,6 +396,6 @@ contract CanvasCondensed {
         """Advance node by exactly n generations, using
         the binary expansion of n to find the correct successors"""
         */
-        head = successor(head, 0);
+        head = successor(centre(head), 1);
     }    
 }

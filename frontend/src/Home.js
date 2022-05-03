@@ -1,51 +1,50 @@
 import React from "react";
-import { Count, Plots } from "./ethereum";
+import {
+  Count,
+  Plots,
+  activateNodes,
+  updateHead,
+  create,
+  advanceOne,
+} from "./ethereum";
 import { createPortal } from "react-dom";
-import { PhotoshopPicker } from "react-color";
-
-function Square(props) {
-  console.log(props);
-  return (
-    <button
-      className="square"
-      onClick={props.onClick}
-      style={{
-        backgroundColor: props.value,
-        width: "100px",
-        height: "100px",
-        padding: 0,
-        border: 0,
-      }}
-    ></button>
-  );
-}
 
 class Board extends React.Component {
   renderSquare(i, j) {
+    const value = this.props.squares[i][j];
     return (
-      <Square
+      <button
+        className="square"
         key={i + "," + j}
-        value={this.props.squares[i][j]}
         onClick={() => this.props.onClick(i, j)}
-      />
+        style={{
+          backgroundColor: `rgb(${value.r}, ${value.g}, ${value.b})`,
+          width: "30px",
+          height: "30px",
+          padding: 0,
+          border: "3px",
+          borderStyle: value["border"],
+          display: "inline-block",
+        }}
+      ></button>
     );
   }
 
-  renderPlot(i, j, value) {
-    return (
-      <div
-        class="square"
-        key={i + "," + j}
-        style={{
-          backgroundColor: `rgb(${value.r}, ${value.g}, ${value.b})`,
-          width: "100px",
-          height: "100px",
-          padding: 0,
-          display: "inline-block",
-        }}
-      ></div>
-    );
-  }
+  // renderPlot(i, j, value) {
+  //   return (
+  //     <div
+  //       class="square"
+  //       key={i + "," + j}
+  //       style={{
+  //         backgroundColor: `rgb(${value.r}, ${value.g}, ${value.b})`,
+  //         width: "100px",
+  //         height: "100px",
+  //         padding: 0,
+  //         display: "inline-block",
+  //       }}
+  //     ></div>
+  //   );
+  // }
 
   render() {
     return (
@@ -56,13 +55,11 @@ class Board extends React.Component {
               className="board-row"
               key={index}
               style={{
-                height: "100px",
+                height: "30px",
               }}
             >
               {items.map((subItems, sIndex) => {
-                return subItems
-                  ? this.renderPlot(index, sIndex, subItems)
-                  : this.renderSquare(index, sIndex);
+                return this.renderSquare(sIndex, index);
               })}
             </div>
           );
@@ -78,118 +75,95 @@ class Game extends React.Component {
     this.state = {
       picker: { color: { r: 128, g: 128, b: 128 }, i: null, j: null },
       nrows: this.props.nrows,
-      plots: this.props.plots,
+      plots: this.props.plots.split(";"),
       plotCount: this.props.plotCount,
       squares: Array(this.props.nrows)
         .fill(null)
         .map((row) => new Array(this.props.nrows).fill(null)),
       showDialog: false,
+      squaresClicked: Array(),
     };
+    this.state.plots.pop();
   }
 
-  // async mintNFT() {
-  //   const offset = (this.state.nrows - 1) / 2;
-  //   console.log(
-  //     this.state.picker.color,
-  //     this.state.picker.i - offset,
-  //     this.state.picker.j - offset
-  //   );
-  //   return await buyNFT(
-  //     this.state.picker.color,
-  //     this.state.picker.i - offset,
-  //     this.state.picker.j - offset
-  //   );
-  // }
+  async activate() {
+    var nodes = [];
+    // for (var i = 0; i < this.state.squaresClicked.length; i++) {
+    //   nodes = Array.from(this.state.squaresClicked[i]);
+    // }
+    console.log(this.state.squaresClicked);
+    return await activateNodes(this.state.squaresClicked);
+  }
 
-  // handleAccept = () => {
-  //   this.state.showDialog = false;
+  async update() {
+    return await updateHead();
+  }
 
-  //   const r = this.mintNFT();
-  //   console.log(r);
-  //   this.state.squares[this.state.picker.i][this.state.picker.j] =
-  //     this.state.picker.color;
-  //   this.forceUpdate();
-  // };
+  async reset() {
+    return await create(4 ** 3);
+  }
 
-  handleClick(i, j) {
-    const squares = this.state.squares.slice();
-    console.log(squares[i][j]);
-    if (squares[i][j]) {
-      return;
+  async advance() {
+    return await advanceOne();
+  }
+
+  onClick(i, j) {
+    const p = this.state.squares[i][j]["pos"];
+    const index = this.state.squaresClicked.indexOf(p);
+    if (index > -1) {
+      this.state.squaresClicked.splice(index, 1);
+      this.state.squares[i][j]["border"] = "none";
+    } else {
+      this.state.squaresClicked.push(p);
+      this.state.squares[i][j]["border"] = "solid";
     }
-
-    this.state.picker.i = i;
-    this.state.picker.j = j;
-    this.state.showDialog = !this.state.showDialog;
+    console.log(this.state.squaresClicked);
     this.forceUpdate();
   }
 
-  handleChangePicker = (color, event) => {
-    this.setState({
-      picker: {
-        color: color.rgb,
-        i: this.state.picker.i,
-        j: this.state.picker.j,
-      },
-    });
-  };
-
-  getXandY = (k, x, y) => {
-    if (k == 0) {
-      return "(".concat(x.toString(), ",", y.toString(), ")");
-    }
-    var result = "";
-    while (k != 0) {
-      k--;
-      result.concat(
-        this.getXandY(k, x - 1, y - 1),
-        ";",
-        this.getXandY(k, x + 1, y - 1),
-        ";",
-        this.getXandY(k, x - 1, y + 1),
-        ";",
-        this.getXandY(k, x + 1, y + 1)
-      );
-      return result;
-    }
-  };
-
   render() {
     var { picker, nrows, plots, plotCount, squares, showDialog } = this.state;
-    const k = 0;
-    const n = plotCount;
+    var k = 0;
+    var n = plotCount;
     while (n > 1) {
-      n = n >> 1;
+      n = n / 4;
       k++;
     }
 
-    var points = this.getXandY(k, nrows, nrows);
-    points = points.split(";");
+    var x_pos = 0;
+    var y_pos = 0;
+    var node = Array(k).fill(0);
+    for (var i = 0; i < plotCount; i++) {
+      var plot = plots[i];
+      var nodeStr = plot.split("--")[0];
+      var node = [];
+      for (var j = 1; j < nodeStr.length; j++) {
+        node.push(parseInt(nodeStr.charAt(j)));
+      }
+      const x_pos = plot.split("--")[1].split(":")[0].split(",")[0];
+      const y_pos = plot.split("--")[1].split(":")[0].split(",")[1];
+      const value = plot.split(":")[1];
 
-    for (var ii = 0; ii < plotCount / 4; ii++) {
-      for (var jj = 0; jj < 4; jj++) {
-        const value = plots[ii * 4 + jj];
-        const x_pos = parseInt(points[ii * 4 + jj][1]);
-        const y_pos = parseInt(points[ii * 4 + jj][3]);
-        console.log(value, x_pos, y_pos);
+      console.log(i, x_pos, y_pos, value, node, nodeStr);
 
-        if (value == "O") {
-          this.state.squares[x_pos][y_pos] = {
-            r: 255,
-            g: 255,
-            b: 255,
-          };
-        } else {
-          this.state.squares[x_pos][y_pos] = {
-            r: 0,
-            g: 0,
-            b: 0,
-          };
-        }
-        if (picker.i) {
-          console.log(picker.i, picker.j, picker.color);
-          this.state.squares[picker.i][picker.j] = picker.color;
-        }
+      if (value == "X") {
+        this.state.squares[x_pos][y_pos] = {
+          pos: i,
+          node: node,
+          border: this.state.squaresClicked.indexOf(i) != -1 ? "solid" : "none",
+          r: 0,
+          g: 255,
+          b: 0,
+        };
+      } else {
+        this.state.squares[x_pos][y_pos] = {
+          pos: i,
+          node: node,
+          border: this.state.squaresClicked.indexOf(i) != -1 ? "solid" : "none",
+          r: 128,
+          g: 128,
+          b: 128,
+        };
       }
     }
 
@@ -199,36 +173,15 @@ class Game extends React.Component {
           <div className="game-board">
             <Board
               squares={this.state.squares}
-              onClick={(i, j) => this.handleClick(i, j)}
+              onClick={(i, j) => this.onClick(i, j)}
             />
           </div>
         </div>
 
-        {showDialog === true ? (
-          <DialogModal>
-            <div className="dialog-wrapper">
-              <i
-                onClick={(e) => {
-                  this.state.showDialog = false;
-                }}
-                className="fa fa-close btn-close"
-              />
-              <PhotoshopPicker
-                disableAlpha={true}
-                color={this.state.picker.color}
-                onChange={this.handleChangePicker}
-                // onAccept={this.handleAccept}
-                onCancel={this.handleCancel}
-                style={{
-                  width: "100px",
-                  height: "100px",
-                  padding: 0,
-                  border: 0,
-                }}
-              />
-            </div>
-          </DialogModal>
-        ) : null}
+        <button onClick={(i, j) => this.activate(i, j)}>Activate</button>
+        <button onClick={(i, j) => this.update()}>Update</button>
+        <button onClick={(i, j) => this.reset()}>Reset</button>
+        <button onClick={(i, j) => this.advance()}>Advance</button>
       </div>
     );
   }
@@ -261,7 +214,7 @@ function Home(currentAccount) {
   const plots = Plots();
   const nrows = Math.sqrt(plotCount);
 
-  if (nrows !== 1 && plots.length === 0) {
+  if (!nrows || !plots || plots.length === 0) {
     return "";
   }
 
